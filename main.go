@@ -22,8 +22,8 @@ var (
 )
 
 func floatFromString(measurement string) (float32, error) {
-	// strip float from beginning of string
-	r, _ := regexp.Compile("^[0-9]*.?[0-9]*")
+	// strip float from string
+	r, _ := regexp.Compile(`\d*\.?\d*`)
 	strippedValue := r.FindString(measurement)
 	log.Debug(strippedValue)
 	float, err := strconv.ParseFloat(strippedValue, 32)
@@ -35,7 +35,7 @@ func floatFromString(measurement string) (float32, error) {
 }
 
 func pullDataFromHTML(rawData []uint8) (temperature, humidity, dewPoint float32, err error) {
-	var floatjes []float32
+	var measurements []float32
 	document := string(rawData)
 
 	// fmt.Print(string(rawData))
@@ -46,14 +46,11 @@ func pullDataFromHTML(rawData []uint8) (temperature, humidity, dewPoint float32,
 		return 0, 0, 0, err
 	}
 
+	// crawl through the document with the intention to find 3 measurements
 	doc.Find("table").EachWithBreak(func(index int, tablehtml *goquery.Selection) bool {
 		log.Debugf("index: %d", index)
 		tablehtml.Find("tr").Each(func(indextr int, rowhtml *goquery.Selection) {
 			log.Debugf("indextr: %d", indextr)
-			// rowhtml.Find("th").Each(func(indexth int, tableheading *goquery.Selection) {
-			// 	log.Debugf("indexth: %d", indexth)
-			// 	headings = append(headings, tableheading.Text())
-			// })
 			rowhtml.Find("td").Each(func(indextd int, tablecell *goquery.Selection) {
 				// skip indextd 0, contains the name of the value
 				if indextd == 1 {
@@ -61,39 +58,41 @@ func pullDataFromHTML(rawData []uint8) (temperature, humidity, dewPoint float32,
 					if err != nil {
 						log.Error("cannot convert ", tablecell.Text())
 					}
-					floatjes = append(floatjes, floatValue)
+					measurements = append(measurements, floatValue)
 					log.Debugf("indextd: %d\tvalue: %f", indextd, floatValue)
 				}
 			})
 		})
 		return false
 	})
-	return floatjes[0], floatjes[1], floatjes[2], nil
+	return measurements[0], measurements[1], measurements[2], nil
 }
 
-func readThermo(target string) (therm, humidity, dewPoint float32, err error) {
+func readThermo(target string) (temperature, humidity, dewpoint float32, err error) {
+	document := "/hodnen.html"
 	host := fmt.Sprintf("%s:80", target)
-	log.Debugf("get data from %s", target)
+	log.Debugf("get %s from %s", document, host)
 
 	conn, err := net.Dial("tcp", host)
 	if err != nil {
 		log.Error(err)
+		return 0, 0, 0, fmt.Errorf("cannot connect to %s", host)
 	}
 	defer conn.Close()
-	fmt.Fprintf(conn, "GET /hodnen.html HTTP/1.0\r\n\r\n")
-	msg, err := ioutil.ReadAll(conn)
+
+	fmt.Fprintf(conn, "GET "+document+" HTTP/1.0\r\n\r\n")
+	response, err := ioutil.ReadAll(conn)
 
 	if err != nil {
 		logrus.Error(err)
-		return 0, 0, 0, err
+		return 0, 0, 0, fmt.Errorf("could not read %s", document)
 	}
 
-	t, h, d, err := pullDataFromHTML(msg)
+	temperature, humidity, dewpoint, err = pullDataFromHTML(response)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, fmt.Errorf("could not read metrics from data")
 	}
-
-	return t, h, d, nil
+	return
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -113,8 +112,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// handle error
 		log.Error(err)
+		w.WriteHeader(404)
+		w.Write([]byte(err.Error()))
 	} else {
-		fmt.Printf("T: %f\nH: %f\nD: %f\n", temperature, humidity, dewPoint)
+		w.Write([]byte(fmt.Sprintf("T: %f\nH: %f\nD: %f\n", temperature, humidity, dewPoint)))
 	}
 }
 
@@ -134,5 +135,9 @@ func main() {
 	http.HandleFunc("/therm", func(w http.ResponseWriter, r *http.Request) {
 		handler(w, r)
 	})
-	http.ListenAndServe(*listenAddress, nil)
+	err := http.ListenAndServe(*listenAddress, nil)
+
+	if err != nil {
+		log.Error("cannot start server: " + err.Error())
+	}
 }
