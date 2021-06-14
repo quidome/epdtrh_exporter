@@ -4,34 +4,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 var (
-	log   = logrus.WithField("pkg", "main")
-	debug = kingpin.Flag("debug", "enable debugging").Short('d').Bool()
-)
-
-func recordMetrics() {
-	go func() {
-		for {
-			opsProcessed.Inc()
-			time.Sleep(2 * time.Second)
-		}
-	}()
-}
-
-var (
-	opsProcessed = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "myapp_processed_ops_total",
-		Help: "The total number of processed events",
-	})
+	log           = logrus.WithField("pkg", "main")
+	debug         = kingpin.Flag("debug", "enable debugging").Short('d').Bool()
+	listenAddress = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":2112").String()
 )
 
 func readThermo(target string) (therm, humidity, dewPoint float32, err error) {
@@ -89,10 +71,10 @@ func main() {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
 
-	log.Info("Starting listener")
+	log.Infof("Starting listener on %s", *listenAddress)
 	http.Handle("/metrics", promhttp.Handler())
 	http.HandleFunc("/therm", func(w http.ResponseWriter, r *http.Request) {
 		handler(w, r)
 	})
-	http.ListenAndServe(":2112", nil)
+	http.ListenAndServe(*listenAddress, nil)
 }
