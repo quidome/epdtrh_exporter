@@ -2,9 +2,14 @@ package main
 
 import (
 	"fmt"
-	"io"
+	"io/ioutil"
+	"net"
 	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
@@ -16,27 +21,79 @@ var (
 	listenAddress = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":2112").String()
 )
 
+func floatFromString(measurement string) (float32, error) {
+	// strip float from beginning of string
+	r, _ := regexp.Compile("^[0-9]*.?[0-9]*")
+	strippedValue := r.FindString(measurement)
+	log.Debug(strippedValue)
+	float, err := strconv.ParseFloat(strippedValue, 32)
+	if err != nil {
+		return 0, err
+	}
+
+	return float32(float), nil
+}
+
+func pullDataFromHTML(rawData []uint8) (temperature, humidity, dewPoint float32, err error) {
+	var floatjes []float32
+	document := string(rawData)
+
+	// fmt.Print(string(rawData))
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(document))
+	if err != nil {
+		fmt.Println("No url found")
+		log.Error(err)
+		return 0, 0, 0, err
+	}
+
+	doc.Find("table").EachWithBreak(func(index int, tablehtml *goquery.Selection) bool {
+		log.Debugf("index: %d", index)
+		tablehtml.Find("tr").Each(func(indextr int, rowhtml *goquery.Selection) {
+			log.Debugf("indextr: %d", indextr)
+			// rowhtml.Find("th").Each(func(indexth int, tableheading *goquery.Selection) {
+			// 	log.Debugf("indexth: %d", indexth)
+			// 	headings = append(headings, tableheading.Text())
+			// })
+			rowhtml.Find("td").Each(func(indextd int, tablecell *goquery.Selection) {
+				// skip indextd 0, contains the name of the value
+				if indextd == 1 {
+					floatValue, err := floatFromString(tablecell.Text())
+					if err != nil {
+						log.Error("cannot convert ", tablecell.Text())
+					}
+					floatjes = append(floatjes, floatValue)
+					log.Debugf("indextd: %d\tvalue: %f", indextd, floatValue)
+				}
+			})
+		})
+		return false
+	})
+	return floatjes[0], floatjes[1], floatjes[2], nil
+}
+
 func readThermo(target string) (therm, humidity, dewPoint float32, err error) {
-	query := fmt.Sprintf("http://%s/hodnen.html", target)
+	host := fmt.Sprintf("%s:80", target)
+	log.Debugf("get data from %s", target)
 
-	log.Debugf("get data from %s", query)
-
-	resp, err := http.Get(query)
+	conn, err := net.Dial("tcp", host)
 	if err != nil {
-		// handle error
-		return 0, 0, 0, err
+		log.Error(err)
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	defer conn.Close()
+	fmt.Fprintf(conn, "GET /hodnen.html HTTP/1.0\r\n\r\n")
+	msg, err := ioutil.ReadAll(conn)
 
 	if err != nil {
-		// handle error
+		logrus.Error(err)
 		return 0, 0, 0, err
 	}
 
-	fmt.Print(body)
-	return 23.1, 50.5, 12.4, nil
+	t, h, d, err := pullDataFromHTML(msg)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	return t, h, d, nil
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +126,7 @@ func main() {
 		FullTimestamp: true})
 	if *debug {
 		logrus.SetLevel(logrus.DebugLevel)
+		log.Debug("Log level switched to debug")
 	}
 
 	log.Infof("Starting listener on %s", *listenAddress)
