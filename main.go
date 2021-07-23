@@ -74,7 +74,7 @@ func pullDataFromHTML(rawData []uint8) (temperature, humidity, dewPoint float32,
 	// fmt.Print(string(rawData))
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(document))
 	if err != nil {
-		fmt.Println("No url found")
+		log.Error("No url found")
 		log.Error(err)
 		return 0, 0, 0, err
 	}
@@ -132,7 +132,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	keys, ok := r.URL.Query()["target"]
 
 	if !ok || len(keys[0]) < 1 {
-		log.Println("Url Param 'key' is missing")
+		log.Println("Url parameter 'target' is missing")
 		return
 	}
 
