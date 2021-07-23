@@ -140,8 +140,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	target := keys[0]
 
 	// get data from target
-	temp, hum, dew, err := readThermo(target)
-	fmt.Printf("T: %f\nH: %f\nD: %f\n", temp, hum, dew)
+	temperature, humidity, dewPoint, err := readThermo(target)
+	log.Printf("T: %f\tH: %f\tD: %f\t", temperature, humidity, dewPoint)
 
 	if err != nil {
 		// handle error
@@ -150,9 +150,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()))
 	} else {
 		// add data to exporter
-		promTemperature.WithLabelValues(target).Set(float64(temp))
-		promHumidity.WithLabelValues(target).Set(float64(hum))
-		promDewPoint.WithLabelValues(target).Set(float64(dew))
+		promTemperature.WithLabelValues(target).Set(float64(temperature))
+		promHumidity.WithLabelValues(target).Set(float64(humidity))
+		promDewPoint.WithLabelValues(target).Set(float64(dewPoint))
 
 		// write exporter
 		promhttp.Handler().ServeHTTP(w, r)
