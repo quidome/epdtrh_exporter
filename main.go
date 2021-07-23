@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
@@ -19,7 +20,39 @@ var (
 	log           = logrus.WithField("pkg", "main")
 	debug         = kingpin.Flag("debug", "enable debugging").Short('d').Bool()
 	listenAddress = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":2112").String()
+
+	promTemperature = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "epdtrh",
+			Name:      "temperature",
+			Help:      "shows temperature from epdtrh",
+		},
+		[]string{"instance"},
+	)
+
+	promHumidity = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "epdtrh",
+			Name:      "humidity",
+			Help:      "shows humidity from epdtrh",
+		},
+		[]string{"instance"},
+	)
+
+	promDewPoint = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "epdtrh",
+			Name:      "dewpoint",
+			Help:      "shows dewpoint from epdtrh",
+		},
+		[]string{"instance"})
 )
+
+func init() {
+	prometheus.Register(promTemperature)
+	prometheus.Register(promHumidity)
+	prometheus.Register(promDewPoint)
+}
 
 func floatFromString(measurement string) (float32, error) {
 	// strip float from string
@@ -107,7 +140,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	target := keys[0]
 
 	// get data from target
-	temperature, humidity, dewPoint, err := readThermo(target)
+	temp, hum, dew, err := readThermo(target)
+	fmt.Printf("T: %f\nH: %f\nD: %f\n", temp, hum, dew)
 
 	if err != nil {
 		// handle error
@@ -115,7 +149,18 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
 		w.Write([]byte(err.Error()))
 	} else {
-		w.Write([]byte(fmt.Sprintf("T: %f\nH: %f\nD: %f\n", temperature, humidity, dewPoint)))
+		// add data to exporter
+		promTemperature.WithLabelValues(target).Set(float64(temp))
+		promHumidity.WithLabelValues(target).Set(float64(hum))
+		promDewPoint.WithLabelValues(target).Set(float64(dew))
+
+		// write exporter
+		promhttp.Handler().ServeHTTP(w, r)
+
+		promTemperature.Reset()
+		promHumidity.Reset()
+		promDewPoint.Reset()
+
 	}
 }
 
