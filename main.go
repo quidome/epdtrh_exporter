@@ -176,10 +176,10 @@ func main() {
 	}
 
 	log.Infof("Starting listener on %s", *listenAddress)
-	http.Handle("/metrics", promhttp.Handler())
-	http.HandleFunc("/therm", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		handler(w, r)
 	})
+
 	err := http.ListenAndServe(*listenAddress, nil)
 
 	if err != nil {
