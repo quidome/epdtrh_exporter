@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"regexp"
@@ -114,7 +114,7 @@ func readThermo(target string) (temperature, humidity, dewpoint float32, err err
 	defer conn.Close()
 
 	fmt.Fprintf(conn, "GET "+document+" HTTP/1.0\r\n\r\n")
-	response, err := ioutil.ReadAll(conn)
+	response, err := io.ReadAll(conn)
 
 	if err != nil {
 		logrus.Error(err)
